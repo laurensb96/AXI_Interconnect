@@ -10,7 +10,7 @@ use ieee.math_real.all;
 -- Specific Libraries
 --*****************************************************************************************
 library work;
-use work.Timecard_Package.all;
+use work.AXI_Interconnect_Package.all;
 
 entity AXI_Interconnect is
 generic(
