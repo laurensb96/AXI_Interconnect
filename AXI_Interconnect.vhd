@@ -74,7 +74,7 @@ port(
 end entity AXI_Interconnect;
 
 architecture behavioral of AXI_Interconnect is
-type fsmState is (IDLE, CON_MST, CON_SLV, BUSY);
+type fsmState is (IDLE, CON_MST, CON_SLV, XFR_ADDR, XFR_DATA, XFR_ADAT, XFR_RESP);
 signal WriteState, ReadState : fsmState;
 begin
 
@@ -124,6 +124,7 @@ elsif(rising_edge(clk)) then
 	-- if not writing; select the active master for writing (0 highest priority)
 	case(WriteState) is
 		when IDLE =>
+			WriteState <= CON_MST;
 			AxiWriteAddrValid_ValOut(SlaveWriteSelect) <= '0';
 			AxiWriteAddrReady_RdyOut(MasterWriteSelect) <= '0';
 			AxiWriteAddrAddress_AdrOut <= (others=> '0');
@@ -137,7 +138,6 @@ elsif(rising_edge(clk)) then
 			AxiWriteRespValid_ValOut(MasterWriteSelect) <= '0';
 			AxiWriteRespReady_RdyOut(SlaveWriteSelect) <= '0';
 			AxiWriteRespResponse_DatOut(MasterWriteSelect) <= (others=> '0');
-			WriteState <= CON_MST;
 		when CON_MST =>
 			i := Nmst-1;
 			while(i>=0) loop
@@ -159,17 +159,28 @@ elsif(rising_edge(clk)) then
 				end if;
 				i := i - 1;
 			end loop;
-			WriteState <= BUSY;
-		when  BUSY =>
+			WriteState <= XFR_ADAT;
+		when  XFR_ADAT =>
 			AxiWriteAddrValid_ValOut(SlaveWriteSelect) <= AxiWriteAddrValid_ValIn(MasterWriteSelect);
 			AxiWriteAddrReady_RdyOut(MasterWriteSelect) <= AxiWriteAddrReady_RdyIn(SlaveWriteSelect);
 			AxiWriteAddrAddress_AdrOut <= AxiWriteAddrAddress_AdrIn(MasterWriteSelect)(15 downto 0);
 			AxiWriteAddrProt_DatOut <= AxiWriteAddrProt_DatIn(MasterWriteSelect);
-		
+
 			AxiWriteDataValid_ValOut(SlaveWriteSelect) <= AxiWriteDataValid_ValIn(MasterWriteSelect);
 			AxiWriteDataReady_RdyOut(MasterWriteSelect) <= AxiWriteDataReady_RdyIn(SlaveWriteSelect);
 			AxiWriteDataData_DatOut <= AxiWriteDataData_DatIn(MasterWriteSelect);
 			AxiWriteDataStrobe_DatOut <= AxiWriteDataStrobe_DatIn(MasterWriteSelect);
+			if(AxiWriteAddrValid_ValIn(MasterWriteSelect) = '1' and AxiWriteAddrReady_RdyIn(SlaveWriteSelect) = '1'
+				and AxiWriteDataValid_ValIn(MasterWriteSelect) = '1' and AxiWriteDataReady_RdyIn(SlaveWriteSelect) = '1') then
+				WriteState <= XFR_RESP;
+			else
+				WriteState <= XFR_ADAT;
+			end if;
+		when XFR_RESP =>
+			AxiWriteAddrValid_ValOut(SlaveWriteSelect) <= '0';
+			AxiWriteAddrReady_RdyOut(MasterWriteSelect) <= '0';
+			AxiWriteDataValid_ValOut(SlaveWriteSelect) <= '0';
+			AxiWriteDataReady_RdyOut(MasterWriteSelect) <= '0';
 
 			AxiWriteRespValid_ValOut(MasterWriteSelect) <= AxiWriteRespValid_ValIn(SlaveWriteSelect);
 			AxiWriteRespReady_RdyOut(SlaveWriteSelect) <= AxiWriteRespReady_RdyIn(MasterWriteSelect);
@@ -177,12 +188,15 @@ elsif(rising_edge(clk)) then
 			if(AxiWriteRespReady_RdyIn(MasterWriteSelect) = '1' and AxiWriteRespValid_ValIn(SlaveWriteSelect) = '1') then
 				WriteState <= IDLE;
 			else
-				WriteState <= BUSY;
+				WriteState <= XFR_RESP;
 			end if;
+		when XFR_ADDR =>
+		when XFR_DATA =>
 	end case;
 
 	case(ReadState) is
 		when IDLE =>
+			ReadState <= CON_MST;
 			AxiReadAddrValid_ValOut(SlaveReadSelect) <= '0';
 			AxiReadAddrReady_RdyOut(MasterReadSelect) <= '0';
 			AxiReadAddrAddress_AdrOut <= (others=> '0');
@@ -192,7 +206,6 @@ elsif(rising_edge(clk)) then
 			AxiReadDataReady_RdyOut(SlaveReadSelect) <= '0';
 			AxiReadDataResponse_DatOut(MasterReadSelect) <= (others=> '0');
 			AxiReadDataData_DatOut(MasterReadSelect) <= (others=> '0');
-			ReadState <= CON_MST;
 		when CON_MST =>
 			i := Nmst-1;
 			while(i>=0) loop
@@ -214,12 +227,20 @@ elsif(rising_edge(clk)) then
 				end if;
 				i := i - 1;
 			end loop;
-			ReadState <= BUSY;
-		when  BUSY =>
+			ReadState <= XFR_ADDR;
+		when XFR_ADDR =>
 			AxiReadAddrValid_ValOut(SlaveReadSelect) <= AxiReadAddrValid_ValIn(MasterReadSelect);
 			AxiReadAddrReady_RdyOut(MasterReadSelect) <= AxiReadAddrReady_RdyIn(SlaveReadSelect);
 			AxiReadAddrAddress_AdrOut <= AxiReadAddrAddress_AdrIn(MasterReadSelect)(15 downto 0);
-			AxiReadAddrProt_DatOut <= AxiReadAddrProt_DatIn(SlaveReadSelect);
+			AxiReadAddrProt_DatOut <= AxiReadAddrProt_DatIn(MasterReadSelect);
+			if(AxiReadAddrValid_ValIn(MasterReadSelect) = '1' and AxiReadAddrReady_RdyIn(SlaveReadSelect) = '1') then
+				ReadState <= XFR_DATA;
+			else
+				ReadState <= XFR_ADDR;
+			end if;
+		when XFR_DATA =>
+			AxiReadAddrValid_ValOut(SlaveReadSelect) <= '0';
+			AxiReadAddrReady_RdyOut(MasterReadSelect) <= '0';
 
 			AxiReadDataValid_ValOut(MasterReadSelect) <= AxiReadDataValid_ValIn(SlaveReadSelect);
 			AxiReadDataReady_RdyOut(SlaveReadSelect) <= AxiReadDataReady_RdyIn(MasterReadSelect);
@@ -228,8 +249,10 @@ elsif(rising_edge(clk)) then
 			if(AxiReadDataReady_RdyIn(MasterReadSelect) = '1' and AxiReadDataValid_ValIn(SlaveReadSelect) = '1') then
 				ReadState <= IDLE;
 			else
-				ReadState <= BUSY;
+				ReadState <= XFR_DATA;
 			end if;
+		when XFR_RESP =>
+		when XFR_ADAT =>
 	end case;
 end if;
 end process;
