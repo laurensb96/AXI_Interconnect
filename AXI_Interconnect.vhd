@@ -1,3 +1,22 @@
+--------------------------------------------------------------------------------
+--
+-- Title       : AXI Interconnect
+-- Design      : 
+-- Author      : Laurens Buijs
+-- Company     : LBEngineering
+--------------------------------------------------------------------------------
+-- File        : AXI_Interconnect.vhd
+-- Generated   : 04/01/2024
+--------------------------------------------------------------------------------
+-- Description :
+-- This entity represents a full-hardware implementation of an AXI Interconnect system.
+-- The number of masters/slaves can be selected through the generics.
+-- The entity handles the masters requests based on a priority scheme:
+-- the master connected to the lowest index of the mux (0 ... Nmst-1) has the highest priority.
+-- The appriopriate slave is then selected for a read/write transaction.
+-- Note that simultaneous read/write operations can be routed between different master/slave pairs.
+--------------------------------------------------------------------------------
+
 --*****************************************************************************************
 -- General Libraries
 --*****************************************************************************************
@@ -81,9 +100,10 @@ begin
 process(clk,rst) -- async reset, active low
 variable MasterWriteSelect, MasterReadSelect : natural;
 variable SlaveWriteSelect, SlaveReadSelect : natural;
-variable i : integer;
+variable i : natural;
 begin
 if(rst = '0') then
+	-- initialize MUXed signals
 	-- master side
 	for i in 0 to (Nmst-1) loop
 		AxiWriteAddrReady_RdyOut(i) <= '0';
@@ -104,6 +124,8 @@ if(rst = '0') then
 		AxiReadAddrValid_ValOut(i) <= '0';
 		AxiReadDataReady_RdyOut(i) <= '0';
 	end loop;
+	
+	-- initialize non-MUXed signals
 	AxiWriteAddrAddress_AdrOut <= (others=>'0');
 	AxiWriteAddrProt_DatOut <= (others=>'0');
 	AxiWriteDataData_DatOut <= (others=>'0');
@@ -115,13 +137,14 @@ if(rst = '0') then
 	MasterReadSelect := 0;
 	SlaveWriteSelect := 0;
 	SlaveReadSelect := 0;
+	i := 0;
 
 	WriteState <= IDLE;
 	ReadState <= IDLE;
-
-	i := 0;
 elsif(rising_edge(clk)) then
-	-- if not writing; select the active master for writing (0 highest priority)
+-- FSM used for write operations: reset connected signals in IDLE state, then connect master to slave in CON_MST and CON_SLV, respectively.
+-- Transfer address and data simultaneously (XFR_ADAT) and wait for handshake, then proceed.
+-- Finalize the transaction by waiting for response handshake (XFR_RESP), and return to IDLE state.
 	case(WriteState) is
 		when IDLE =>
 			WriteState <= CON_MST;
@@ -139,12 +162,14 @@ elsif(rising_edge(clk)) then
 			AxiWriteRespReady_RdyOut(SlaveWriteSelect) <= '0';
 			AxiWriteRespResponse_DatOut(MasterWriteSelect) <= (others=> '0');
 		when CON_MST =>
-			i := Nmst-1;
-			while(i>=0) loop
+			i := 0;
+			while(i<Nmst) loop
 				if(AxiWriteAddrValid_ValIn(i) = '1') then
 					MasterWriteSelect := i;
+					i := Nmst;
+				else
+					i := i + 1;
 				end if;
-				i := i - 1;
 			end loop;
 			if(AxiWriteAddrValid_ValIn(MasterWriteSelect) = '1') then
 				WriteState <= CON_SLV;
@@ -152,12 +177,14 @@ elsif(rising_edge(clk)) then
 				WriteState <= CON_MST;
 			end if;
 		when CON_SLV =>
-			i := Nslv-1;
-			while(i>=0) loop
+			i := 0;
+			while(i<Nslv) loop
 				if(AxiWriteAddrAddress_AdrIn(MasterWriteSelect)(31 downto 16) = AxiBaseAddr(i)) then
 					SlaveWriteSelect := i;
+					i := Nslv;
+				else
+					i := i + 1;
 				end if;
-				i := i - 1;
 			end loop;
 			WriteState <= XFR_ADAT;
 		when  XFR_ADAT =>
@@ -194,6 +221,8 @@ elsif(rising_edge(clk)) then
 		when XFR_DATA =>
 	end case;
 
+-- FSM used for read operations: reset connected signals in IDLE state, then connect master to slave in CON_MST and CON_SLV, respectively.
+-- Transfer address (XFR_ADDR) then data (XFR_DATA) and return to IDLE state.
 	case(ReadState) is
 		when IDLE =>
 			ReadState <= CON_MST;
@@ -207,12 +236,14 @@ elsif(rising_edge(clk)) then
 			AxiReadDataResponse_DatOut(MasterReadSelect) <= (others=> '0');
 			AxiReadDataData_DatOut(MasterReadSelect) <= (others=> '0');
 		when CON_MST =>
-			i := Nmst-1;
-			while(i>=0) loop
+			i := 0;
+			while(i<Nmst) loop
 				if(AxiReadAddrValid_ValIn(i) = '1') then
 					MasterReadSelect := i;
+					i := Nmst;
+				else
+					i := i + 1;
 				end if;
-				i := i - 1;
 			end loop;
 			if(AxiReadAddrValid_ValIn(MasterReadSelect) = '1') then
 				ReadState <= CON_SLV;
@@ -220,12 +251,14 @@ elsif(rising_edge(clk)) then
 				ReadState <= CON_MST;
 			end if;
 		when CON_SLV =>
-			i := Nslv-1;
-			while(i>=0) loop
+			i := 0;
+			while(i<Nslv) loop
 				if(AxiReadAddrAddress_AdrIn(MasterReadSelect)(31 downto 16) = AxiBaseAddr(i)) then
 					SlaveReadSelect := i;
+					i := Nslv;
+				else
+					i := i + 1;
 				end if;
-				i := i - 1;
 			end loop;
 			ReadState <= XFR_ADDR;
 		when XFR_ADDR =>
